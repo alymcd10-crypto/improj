@@ -2,3 +2,14 @@ node_modules/
 .env
 data/
 *.log
+
+# ---- LMT reconciliation tool: never commit client data ----
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.tsv
+!lmt_reconciliation/synthetic_demo/SYNTHETIC_*
+lmt_reconciliation/.venv/
+__pycache__/
+.pytest_cache/

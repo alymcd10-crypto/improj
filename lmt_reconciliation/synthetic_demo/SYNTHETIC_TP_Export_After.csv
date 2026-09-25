@@ -1,0 +1,20 @@
+Contact ID,First Name,Last Name,Spouse First Name,Spouse Last Name,Company,Email,Email 2,Home Phone,Mobile Phone,Work Phone,Work Phone Ext,Address,City,State,Zip,Contact Type,Notes,Last Modified
+T001,Avery,Sample,,,,avery@example.com,,,206-555-0101,,,77 New Road,Seattle,WA,02134,Past Client; Sphere,,2026-09-01
+T002,Avery,Sample,,,,avery.s@example.net,,,425-555-0102,,,900 Other Ave,Seattle,WA,98101,,,2026-09-01
+T003,Jordan,Example,Casey,Example,,example.family@example.com,,206-555-0103,,,,5 Shared Lane,Seattle,WA,98101,Sphere; Past Client,,2026-09-01
+T004,Morgan,Example,,,,example.family@example.com,,206-555-0103,,,,5 Shared Lane,Seattle,WA,98101,,,2026-09-01
+T005,,,,,Acme Test Holdings LLC,office@acmetest.example,,,,206-555-0105,12,,Seattle,WA,98101,Vendor,,2026-09-01
+T006,Renée,O'Testly,,,,renee@example.com,,,(206) 555-0106,,,,Seattle,WA,98101,Sphere,"Kids: Emma and Liam.
+Prefers text messages.
+Dog named Biscuit (from Agent Office)",2026-09-01
+T007,Sam,Newerton,,,,,,,206-555-0107,,,,Seattle,WA,98101,,2026-08-01 client said old cell 206-555-0177 is disconnected; new cell on file.,2026-09-01
+T008,Pat,Optout,,,,pat@example.com,,,,,,,Seattle,WA,98101,Past Client,2026-07-15 asked to opt out of the newsletter.,2026-09-01
+T009,Lee,Verified,,,,lee@example.com,,,206-555-0109,,,,Seattle,WA,98101,,,2026-09-01
+T010,Chris,Categories,,,,chris@example.com,,,,,,,Seattle,WA,98101,Sphere; Past Client,,2026-09-01
+T011,Kim,Unmapped,,,,kim@example.com,,,,,,,Seattle,WA,98101,Past Client,,2026-09-01
+T012,Quinn,Formula,,,,quinn@example.com,,,,,,,Seattle,WA,98101,,"=HYPERLINK(""http://bad.example"")",2026-09-01
+T013,Taylor,Extension,,,,taylor@example.com,,,,206-555-0113,45,,Seattle,WA,98101,,,2026-09-01
+T014,Jamie,Missing,,,,jamie@example.com,,,206-555-0114,206-555-0144,,,Seattle,WA,98101,,,2026-09-01
+T015,Drew,Notes,,,,drew@example.com,,,,,,,Seattle,WA,98101,,"Birthday party 6/12.
+""Loves   BOATING"" — mentioned at closing, 2019.",2026-09-01
+T016,Blair,Longnote,,,,blair@example.com,,,,,,,Seattle,WA,98101,,Short note.,2026-09-01
