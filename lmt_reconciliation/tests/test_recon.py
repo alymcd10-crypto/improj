@@ -256,7 +256,8 @@ def test_retention_and_unexpected_differences_reported_not_attributed():
                            InputFile("done", "done.csv", S.worklist_bytes(rows)),
                            InputFile("post", "post.csv", S.export_bytes(post_contacts())))
     v = {x.change_id: x for x in out.verify_rows}
-    assert v["V1"].result == "VERIFIED_COMPLETE" and "Buyer" in v["V1"].retained
+    # Sphere was added but Buyer disappeared: not verified complete (see test_verify_* below)
+    assert v["V1"].result == "ADDED_BUT_EARLIER_INFO_MISSING" and "Buyer" in v["V1"].retained
     assert "Address" in v["V2"].other_changes and "another user" in v["V2"].other_changes
 
 
@@ -351,3 +352,203 @@ def test_source_files_are_never_modified(tmp_path):
     assert cli.main(["reconcile", "--worklist", str(wl), "--export", str(tpf)]) == 0
     assert before == {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in (wl, tpf)}
     assert sorted(x.name for x in tmp_path.iterdir() if x.is_file()) == ["SYNTHETIC_tp.csv", "SYNTHETIC_wl.csv"]
+
+
+# ================================================================== review fixes
+# ---- 1. duplicate Top Producer IDs
+def dup_export():
+    """T014 (Jamie Missing) shares its ID with an unrelated second row."""
+    return S.export_bytes(S.base_contacts() + [S.tp("T014", "Robin", "Othername", email="robin@example.com")])
+
+
+@pytest.mark.parametrize("row", [
+    S.wl("D1", "ADD_MISSING_PHONE", "206-555-0191", "Jamie", "Missing", email="jamie@example.com"),  # fallback
+    S.wl("D2", "ADD_MISSING_PHONE", "206-555-0192", "Jamie", "Missing", tp_id="T014"),              # by ID
+    S.wl("D3", "ADD_MISSING_PHONE", "206-555-0193", "Robin", "Othername", email="robin@example.com"),
+])
+def test_duplicate_tp_id_never_reaches_cowork_worklist(row):
+    out = recon(S.worklist_bytes([row]), dup_export())
+    r = out.recon.rows[0]
+    assert r.assessment == "MATCH_REVIEW" and not r.eligible and r.match.contact is None
+    assert read_out(out, "Remaining_Corrections.csv") == []
+    assert out.counts["Ready for Cowork"] == 0 and out.counts["Review needed"] == 1
+    review = read_out(out, "Review_Required.csv")
+    row_review = [x for x in review if x["Change_ID"] == row["Change_ID"]]
+    assert row_review and row_review[0]["Review_Category"] == "Duplicate Top Producer ID"
+    assert "appears on 2 rows" in row_review[0]["Reason"] and "does not pick one" in row_review[0]["Reason"]
+    assert any(x["Review_Category"] == "Duplicate Top Producer ID" and not x["Change_ID"] for x in review)
+    assert all(ok for _, ok in out.checks)
+
+
+def test_duplicate_tp_id_overrides_confirmed_match():
+    out = recon(S.worklist_bytes([S.wl("D4", "ADD_MISSING_PHONE", "206-555-0194", "Jamie", "Missing",
+                                       email="jamie@example.com")]))
+    r = out.recon.rows[0]
+    store.record_decision(r.contact_key, r.contact_label, "T014", "CONFIRMED", "checked", "Tester", out.run_id)
+    again = recon(S.worklist_bytes([S.wl("D4", "ADD_MISSING_PHONE", "206-555-0194", "Jamie", "Missing",
+                                         email="jamie@example.com")]), dup_export()).recon.rows[0]
+    assert again.assessment == "MATCH_REVIEW" and not again.eligible
+
+
+def test_unaffected_contacts_still_proceed_with_duplicate_ids_elsewhere():
+    out = recon(export=dup_export())
+    r = by_id(out)
+    assert not r["C014"].eligible and r["C014"].match.duplicate_id == "T014"
+    assert r["C005"].eligible                       # other contacts unaffected
+    ids = {x["Change_ID"] for x in read_out(out, "Remaining_Corrections.csv")}
+    assert "C014" not in ids and "C005" in ids
+
+
+def test_master_tab_overlap_is_not_a_duplicate_tp_id():
+    out = recon(master=InputFile("m", "SYNTHETIC_master.xlsx", S.master_xlsx_bytes()))
+    assert out.source_summaries["Master workbook"]["Tab rows that repeat an All Contacts row (not duplicates)"] == 1
+    assert not any(x["Review_Category"] == "Duplicate Top Producer ID" for x in out.review)
+
+
+def test_verification_holds_duplicate_ids():
+    rows = [S.wl("D5", "ADD_MISSING_PHONE", "206-555-0144", "Jamie", "Missing", tp_id="T014", status="DONE")]
+    post = S.base_contacts() + [S.tp("T014", "Robin", "Othername", email="robin@example.com")]
+    post[13]["Work Phone"] = "206-555-0144"
+    out = run_verification(InputFile("p", "pre.csv", S.export_bytes()), InputFile("d", "d.csv", S.worklist_bytes(rows)),
+                           InputFile("q", "post.csv", S.export_bytes(post)))
+    v = out.verify_rows[0]
+    assert v.result == "MATCH_REVIEW" and out.counts["Verified completed"] == 0
+    assert v.reviews[0][0] == "Duplicate Top Producer ID"
+
+
+# ---- 2. verification must include retention
+def verify_one(row, pre_contacts=None, post_contacts_=None, pre_drop=(), post_drop=()):
+    return run_verification(
+        InputFile("pre", "pre.csv", S.export_bytes(pre_contacts or S.base_contacts(), drop=pre_drop)),
+        InputFile("done", "done.csv", S.worklist_bytes([row])),
+        InputFile("post", "post.csv", S.export_bytes(post_contacts_, drop=post_drop)))
+
+
+def renee_sphere_row():
+    return S.wl("R1", "ADD_MISSING_CATEGORIES", "Sphere", "Renée", "O'Testly", email="renee@example.com",
+                status="DONE")
+
+
+def test_category_added_but_existing_category_lost_requires_review():
+    post = S.base_contacts()
+    post[5]["Contact Type"] = "Sphere"                       # Buyer disappeared
+    out = verify_one(renee_sphere_row(), post_contacts_=post)
+    v = out.verify_rows[0]
+    assert v.result == "ADDED_BUT_EARLIER_INFO_MISSING"
+    assert v.addition_present == "Yes" and v.retention == "Earlier information missing" and "Buyer" in v.retained
+    assert "Cowork or another user" in v.reason               # not attributed to Cowork
+    csv_row = read_out(out, "Verification_Results.csv")[0]
+    assert csv_row["Independent_Result"] == "ADDED_BUT_EARLIER_INFO_MISSING"
+    assert csv_row["Requested_Addition_Present"] == "Yes"
+    assert csv_row["Earlier_Info_Retained"] == "Earlier information missing"
+    review = read_out(out, "Review_Required.csv")
+    assert [x["Review_Category"] for x in review] == ["Earlier information missing after edit"]
+    assert out.counts["Verified completed"] == 0 and out.counts["Added, earlier info missing"] == 1
+    assert out.counts["Retention problems"] == 1 and all(ok for _, ok in out.checks)
+    summary = out.files["Run_Summary.md"].decode()
+    assert "- Verified completed: 0" in summary and "ADDED_BUT_EARLIER_INFO_MISSING: 1" in summary
+
+
+def test_successful_addition_with_retained_info_verifies():
+    post = S.base_contacts()
+    post[5]["Contact Type"] = "Buyer; Sphere"
+    out = verify_one(renee_sphere_row(), post_contacts_=post)
+    v = out.verify_rows[0]
+    assert v.result == "VERIFIED_COMPLETE" and v.addition_present == "Yes" and v.retention == "Retained"
+    assert out.counts["Verified completed"] == 1 and read_out(out, "Review_Required.csv") == []
+    assert read_out(out, "Verification_Results.csv")[0]["Earlier_Info_Retained"] == "Retained"
+
+
+def test_missing_pre_edit_field_prevents_full_verification():
+    post = S.base_contacts()
+    post[5]["Contact Type"] = "Buyer; Sphere"
+    out = verify_one(renee_sphere_row(), post_contacts_=post, pre_drop=("Contact Type",))
+    v = out.verify_rows[0]
+    assert v.result == "ADDED_RETENTION_NOT_VERIFIABLE"
+    assert v.addition_present == "Yes" and v.retention == "Not verifiable from export"
+    assert "no Contact Type" in v.retained or "no category" in v.retained
+    assert out.counts["Verified completed"] == 0 and out.counts["Added, retention not verifiable"] == 1
+    assert read_out(out, "Review_Required.csv")[0]["Review_Category"] == "Cannot be checked automatically"
+
+
+def test_missing_post_edit_field_is_not_verifiable():
+    out = verify_one(renee_sphere_row(), post_contacts_=S.base_contacts(), post_drop=("Contact Type",))
+    v = out.verify_rows[0]
+    assert v.result == "NOT_VERIFIABLE_FROM_EXPORT" and v.addition_present == "Not verifiable from export"
+    assert out.counts["Verified completed"] == 0
+
+
+def test_phone_added_but_primary_number_replaced_requires_review():
+    row = S.wl("P1", "ADD_MISSING_PHONE", "206-555-0144", "Jamie", "Missing", email="jamie@example.com",
+               status="DONE")
+    post = S.base_contacts()
+    post[13]["Mobile Phone"] = "206-555-0144"                # added by overwriting the existing number
+    v = verify_one(row, post_contacts_=post).verify_rows[0]
+    assert v.result == "ADDED_BUT_EARLIER_INFO_MISSING" and "206-555-0114" in v.retained
+    post[13]["Mobile Phone"] = "206-555-0114"
+    post[13]["Work Phone"] = "206-555-0144"                   # added alongside it
+    assert verify_one(row, post_contacts_=post).verify_rows[0].result == "VERIFIED_COMPLETE"
+
+
+def test_note_added_but_earlier_note_removed_requires_review():
+    row = S.wl("P2", "RESTORE_MISSING_NOTE_DETAIL", "Dog named Biscuit", "Renée", "O'Testly",
+               email="renee@example.com", status="DONE")
+    post = S.base_contacts()
+    post[5]["Notes"] = "Dog named Biscuit."                   # original note text replaced
+    v = verify_one(row, post_contacts_=post).verify_rows[0]
+    assert v.result == "ADDED_BUT_EARLIER_INFO_MISSING"
+    post[5]["Notes"] = S.base_contacts()[5]["Notes"].upper() + "\n\nDog named Biscuit (Agent Office)"
+    assert verify_one(row, post_contacts_=post).verify_rows[0].result == "VERIFIED_COMPLETE"
+
+
+# ---- 3. conservative note matching
+def note_case(notes, detail):
+    contacts = S.base_contacts()
+    contacts[15]["Notes"] = notes
+    out = recon(S.worklist_bytes([S.wl("N1", "RESTORE_MISSING_NOTE_DETAIL", detail, "Blair", "Longnote",
+                                       email="blair@example.com")]), S.export_bytes(contacts))
+    return out, out.recon.rows[0]
+
+
+def test_scattered_note_words_do_not_count_as_the_detail():
+    out, r = note_case("Agent Office import. John called about the listing.\nDrove a Pinto in college.",
+                       "Agent: John Pinto")
+    assert r.assessment == "MISSING_IN_CURRENT_EXPORT" and "only separately" in r.reason
+    assert [x["Change_ID"] for x in read_out(out, "Remaining_Corrections.csv")] == ["N1"]
+
+
+@pytest.mark.parametrize("notes", [
+    "AGENT:\n  john   PINTO",
+    "Closed 2019. Agent - John Pinto.",
+    "agent—john pinto (per Agent Office)",
+])
+def test_harmless_note_formatting_differences_still_match(notes):
+    out, r = note_case(notes, "Agent: John Pinto")
+    assert r.assessment == "ALREADY_CORRECT" and not r.eligible
+    assert read_out(out, "Remaining_Corrections.csv") == []
+
+
+@pytest.mark.parametrize("notes", [
+    "John Pinto was the agent on the sale.",   # reworded: same words, different order
+    "Agent: John Smith",                       # different person, same role
+    "Lender: John Pinto",                      # same person, different role
+])
+def test_uncertain_note_paraphrase_or_different_person_goes_to_review(notes):
+    out, r = note_case(notes, "Agent: John Pinto")
+    assert r.assessment == "CONFLICT_REVIEW" and not r.eligible
+    assert read_out(out, "Remaining_Corrections.csv") == []
+    assert any(x["Change_ID"] == "N1" for x in read_out(out, "Review_Required.csv"))
+
+
+def test_note_ampersand_and_apostrophes_are_harmless():
+    _, r = note_case("Kids: Emma & Liam O’Brien", "kids: emma and liam o'brien")
+    assert r.assessment == "ALREADY_CORRECT"
+
+
+def test_verification_does_not_accept_scattered_note_words():
+    row = S.wl("N2", "RESTORE_MISSING_NOTE_DETAIL", "Agent: John Pinto", "Blair", "Longnote",
+               email="blair@example.com", status="DONE")
+    post = S.base_contacts()
+    post[15]["Notes"] = "Short note.\nAgent Office import. John called.\nDrove a Pinto."
+    v = verify_one(row, post_contacts_=post).verify_rows[0]
+    assert v.result == "EXPECTED_CHANGE_NOT_FOUND" and v.addition_present == "No"

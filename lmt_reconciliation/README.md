@@ -44,8 +44,9 @@ Your browser opens at **http://localhost:8501**. To stop the tool, close the bla
 
 **Page 2: Verify completed work.** Select the pre-edit export, the completed Cowork worklist and the post-edit
 export. **Verification_Results.csv** shows Cowork's reported status and this tool's independent result side by
-side. It also shows whether earlier values were kept and any other differences on the contact. Those other
-differences are reported, not blamed on Cowork, because someone else may have edited the CRM.
+side. Two separate columns show whether the **requested addition is present** and whether the **earlier
+information in that field was retained**. An item is only `VERIFIED_COMPLETE` when both are confirmed. Other
+differences on the contact are reported, not blamed on Cowork, because someone else may have edited the CRM.
 
 **Page 3: Review exceptions.** Filter the review items by type. When you have checked a contact yourself, you
 can **confirm or reject a match** here. Your name and reason are saved, and later runs reuse the decision.
@@ -69,7 +70,9 @@ backup copy.
 | NOT_FOUND | No matching contact, or a stored ID is not in this export. |
 | NOT_VERIFIABLE_FROM_EXPORT | The export has no column for this field, or the column is blank for every contact. This is never treated as "blank". |
 | NEEDS_REVIEW | A review-only item, an unmapped category, unclear phone digits or extension, an unsupported change type, or a missing source detail. |
-| VERIFIED_COMPLETE | The post-edit export independently shows the intended result on the right contact. |
+| VERIFIED_COMPLETE | The post-edit export shows the requested addition on the right contact **and** everything already in that field is still there. |
+| ADDED_BUT_EARLIER_INFO_MISSING | The addition is there, but something already in that field is gone (for example a contact type or the primary phone). Needs review; the exports cannot show who removed it. |
+| ADDED_RETENTION_NOT_VERIFIABLE | The addition is there, but an export lacks the field needed to check that earlier information was kept. Not counted as verified. |
 | EXPECTED_CHANGE_NOT_FOUND | Cowork reported it done, but the post-edit export does not show it. |
 
 Only items that meet **all** of these conditions go to `Remaining_Corrections.csv`:
@@ -94,6 +97,10 @@ Only items that meet **all** of these conditions go to `Remaining_Corrections.cs
 4. Similar names and details that match a differently named profile are shown as suggestions for review.
    They are never matched automatically.
 5. A master worksheet row number is a source reference, never a contact ID.
+6. If one contact ID appears on more than one row of a Top Producer export, the tool never picks a row. Every
+   change that would touch that ID goes to review ("Duplicate Top Producer ID"), whether it was found by ID or
+   by name and details. This is separate from the master workbook, where the same person appearing on
+   All Contacts and on agent/category tabs is expected.
 
 ## What each check does
 
@@ -102,8 +109,11 @@ Only items that meet **all** of these conditions go to `Remaining_Corrections.cs
   extensions, or a number that appears on another profile go to review.
 - **Categories:** compared as sets, so order and case don't matter, while the original labels are kept. Only
   missing types are proposed. An opt-out note or a "Do Not Contact"-type label holds the item.
-- **Notes:** only the missing detail is proposed. A detail already present with different wording or
-  formatting is not re-added. Whole-note replacements always go to review.
+- **Notes:** only the missing detail is proposed. A detail counts as already present only when its words appear
+  together, in the same order; capitalisation, spacing, line breaks, punctuation and `&`/`and` don't matter.
+  The same words scattered through unrelated sentences do not count. The same words reordered within one
+  sentence ("John Pinto was the agent") or a different person or role ("Agent: John Smith") go to review, so
+  nothing is marked done or added twice by guesswork. Whole-note replacements always go to review.
 - **Birthdays:** placeholder years such as 1800 are never treated as real years.
 - **Downloads:** any cell that a spreadsheet could run as a formula gets a leading `'`. The stored values are
   unchanged.

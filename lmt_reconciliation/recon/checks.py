@@ -28,6 +28,8 @@ R_DUPLICATE = "Suspected duplicate"
 R_REVIEW_ONLY = "Review-only item"
 R_COWORK = "Cowork status needs attention"
 R_NOT_FOUND = "Contact not found"
+R_DUP_ID = "Duplicate Top Producer ID"
+R_RETENTION = "Earlier information missing after edit"
 
 PHONE_NEWER = re.compile(r"(disconnected|wrong number|new (cell|number|phone)|changed (his |her |their )?"
                          r"(number|phone|cell)|no longer|do not call|\bdnc\b|number (is )?(changed|bad))",
@@ -218,6 +220,9 @@ def check_categories(proposed: str, c: TPContact, export: TPExport, mapping: dic
 
 
 # ---------------------------------------------------------------- notes
+NOTE_STOPWORDS = {"a", "an", "the", "and", "or", "of", "to", "in", "on", "at", "for", "is", "was", "with", "by",
+                  "from", "as", "be", "s"}
+
 def check_note(proposed: str, c: TPContact, export: TPExport) -> CheckResult:
     ok, why = export.field_available("note")
     if not ok:
@@ -234,24 +239,40 @@ def check_note(proposed: str, c: TPContact, export: TPExport) -> CheckResult:
                            reason="The proposed text is a whole note, not a specific missing detail.",
                            reviews=[(R_CONFLICT, "Proposed text looks like an entire note. Identify the specific "
                                                  "missing detail instead of replacing the note.")])
-    if N.note_compact(detail) and N.note_compact(detail) in N.note_compact(current):
+    words = N.note_tokens(detail)
+    if not words:
+        return CheckResult(UNCERTAIN, current, expected=[detail], reason="The proposed detail has no words to compare.",
+                           reviews=[(R_SOURCE, "Proposed note detail has no letters or digits.")])
+    if N.contains_sequence(words, N.note_tokens(current)):
         return CheckResult(PRESENT, current, expected=[detail],
-                           reason="The detail is already in the notes (spacing/punctuation ignored).")
-    have = set(N.note_tokens(current))
-    found = sum(1 for t in tokens if t in have)
-    cover = found / len(tokens) if tokens else 0
-    if cover == 1:
-        return CheckResult(PRESENT, current, expected=[detail],
-                           reason="Every word of the detail is already in the notes, in different wording "
-                                  "or order. Not re-added, to avoid a duplicate.")
-    if cover >= 0.5:
+                           reason="The detail is already in the notes: same words in the same order (capitalisation, "
+                                  "spacing, line breaks and punctuation ignored).")
+    # Not present as written. Look for the detail's key words inside ONE sentence/line only;
+    # the same words spread over unrelated sentences never count as the detail.
+    key = [t for t in dict.fromkeys(words) if t not in NOTE_STOPWORDS] or list(dict.fromkeys(words))
+    best_hits, best_seg = 0, ""
+    for raw, seg_words in N.note_segments(current):
+        hits = len(set(key) & set(seg_words))
+        if hits > best_hits:
+            best_hits, best_seg = hits, raw
+    quoted = (best_seg[:140] + " …") if len(best_seg) > 140 else best_seg
+    if best_hits == len(key):
         return CheckResult(UNCERTAIN, current, expected=[detail],
-                           reason=f"About {round(cover * 100)}% of the detail's words are already in the notes.",
-                           reviews=[(R_CONFLICT, "Part of this detail is already in the notes with different "
-                                                 "wording. Decide whether anything is actually missing.")])
+                           reason=f"A sentence in the notes uses the same words in a different order: \"{quoted}\".",
+                           reviews=[(R_CONFLICT, f"Possible paraphrase of '{detail}' in the notes (\"{quoted}\"). "
+                                                 "Decide whether it says the same thing; not re-added automatically.")])
+    if best_hits >= 2 and best_hits / len(key) >= 0.6:
+        return CheckResult(UNCERTAIN, current, expected=[detail],
+                           reason=f"A sentence in the notes partly matches: \"{quoted}\".",
+                           reviews=[(R_CONFLICT, f"The notes partly match '{detail}' (\"{quoted}\"). It may name a "
+                                                 "different person or role, or be a reworded version. A person "
+                                                 "decides; not re-added automatically.")])
+    scattered = set(key) <= set(N.note_tokens(current))
     return CheckResult(MISSING, current, [detail], expected=[detail],
-                       reason="Detail not found in the notes. Add it next to the existing note with a source "
-                              "attribution; never replace the existing note.")
+                       reason="Detail not found in the notes. " + (
+                           "Its words appear only separately, in unrelated parts of the notes, which does not count. "
+                           if scattered else "") + "Add it next to the existing note with a source attribution; never "
+                                                   "replace the existing note.")
 
 
 # ---------------------------------------------------------------- birthday

@@ -17,9 +17,9 @@ WORKLIST_LABEL = "COWORK WORKLIST - NOT A TOP PRODUCER IMPORT FILE"
 REVIEW_COLUMNS = ["Review_Category", "Change_ID", "Contact", "TP_IDs", "Field", "Source_Value",
                   "Current_TP_Value", "Proposed_Addition", "Assessment", "Reason", "Source_Reference", "Detail"]
 VERIFY_COLUMNS = ["Change_ID", "Contact", "Field", "Action", "Proposed_Addition", "Cowork_Reported_Status",
-                  "Cowork_Verified_After_Value", "Independent_Result", "Reason", "Matched_TP_ID",
-                  "Match_Evidence", "Pre_Edit_Value", "Post_Edit_Value", "Earlier_Values_Retained",
-                  "Other_Differences_On_Contact"]
+                  "Cowork_Verified_After_Value", "Independent_Result", "Requested_Addition_Present",
+                  "Earlier_Info_Retained", "Reason", "Retention_Detail", "Matched_TP_ID", "Match_Evidence",
+                  "Pre_Edit_Value", "Post_Edit_Value", "Other_Differences_On_Contact"]
 
 
 def csv_bytes(headers: list[str], rows: list[dict]) -> bytes:
@@ -89,7 +89,8 @@ def verification_rows(rows: list[VerifyRow]) -> list[dict]:
              "Cowork_Verified_After_Value": v.cowork_after_value, "Independent_Result": v.result,
              "Reason": v.reason, "Matched_TP_ID": v.tp_id, "Match_Evidence": v.match_evidence,
              "Pre_Edit_Value": v.pre_value, "Post_Edit_Value": v.post_value,
-             "Earlier_Values_Retained": v.retained, "Other_Differences_On_Contact": v.other_changes}
+             "Requested_Addition_Present": v.addition_present, "Earlier_Info_Retained": v.retention,
+             "Retention_Detail": v.retained, "Other_Differences_On_Contact": v.other_changes}
             for v in rows]
 
 
@@ -168,11 +169,20 @@ def ledger_entries_verify(rows: list[VerifyRow], run_id: str, run_at: str, expor
              "Export_SHA256": export_sha} for v in rows]
 
 
-def verify_checks(rows: list[VerifyRow]) -> list[tuple[str, bool]]:
+def verify_checks(rows: list[VerifyRow], reviews: list[dict] | None = None) -> list[tuple[str, bool]]:
+    from .verify import ADDED_YES, RETAINED
     c = verification_counts(rows)
-    return [("Result counts add up to worklist rows", sum(c["by_result"].values()) == len(rows)),
-            ("Only Cowork-claimed rows can be verified complete",
-             all(v.cowork_status in ("DONE", "ALREADY_CORRECT") for v in rows if v.result == "VERIFIED_COMPLETE"))]
+    checks = [("Result counts add up to worklist rows", sum(c["by_result"].values()) == len(rows)),
+              ("Only Cowork-claimed rows can be verified complete",
+               all(v.cowork_status in ("DONE", "ALREADY_CORRECT") for v in rows if v.result == "VERIFIED_COMPLETE")),
+              ("Verified complete only when the addition is present AND earlier information was retained",
+               all(v.addition_present == ADDED_YES and v.retention == RETAINED
+                   for v in rows if v.result == "VERIFIED_COMPLETE"))]
+    if reviews is not None:
+        needs = {v.change_id for v in rows if v.reviews and v.change_id}
+        checks.append(("Every verification needing review appears in Review_Required",
+                       {r["Change_ID"] for r in reviews if r.get("Change_ID")} >= needs))
+    return checks
 
 
 __all__ = ["store"]

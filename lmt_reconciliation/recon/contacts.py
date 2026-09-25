@@ -68,7 +68,7 @@ class TPExport:
     sha256: str
     roles: dict
     contacts: list[TPContact]
-    by_id: dict[str, TPContact]
+    by_id: dict[str, TPContact]            # only IDs that appear on exactly one row
     by_last: dict[str, list[TPContact]]
     by_company: dict[str, list[TPContact]]
     by_email: dict[str, list[TPContact]]
@@ -77,6 +77,16 @@ class TPExport:
     field_status: dict[str, str]          # 'present' | 'missing' | 'all_blank'
     warnings: list[str] = field(default_factory=list)
     category_separator: str = ";"
+    duplicate_ids: dict[str, list[TPContact]] = field(default_factory=dict)  # ID -> every row carrying it
+
+    def duplicate_id_reason(self, tp_id: str) -> str:
+        rows = self.duplicate_ids.get(tp_id, [])
+        if not rows:
+            return ""
+        who = "; ".join(f"row {c.row_number}: {c.label}" for c in rows[:5])
+        return (f"Contact ID {tp_id} appears on {len(rows)} rows of {self.filename} ({who}). The tool cannot "
+                "tell which row is the real contact, so it does not pick one. Check the export or merge the "
+                "duplicate in Top Producer first.")
 
     def field_available(self, kind: str) -> tuple[bool, str]:
         status = self.field_status.get(kind, "missing")
@@ -146,13 +156,18 @@ def build_tp_export(table: Table, roles: dict, filename: str, sha256: str) -> TP
 
     by_id, by_last, by_company = {}, defaultdict(list), defaultdict(list)
     by_email, by_phone, by_address = defaultdict(list), defaultdict(list), defaultdict(list)
+    rows_by_id: dict[str, list[TPContact]] = defaultdict(list)
     for c in contacts:
         if c.tp_id:
-            if c.tp_id in by_id:
-                warnings.append(f"Contact ID {c.tp_id} appears on more than one row "
-                                f"(rows {by_id[c.tp_id].row_number} and {c.row_number}).")
-            else:
-                by_id[c.tp_id] = c
+            rows_by_id[c.tp_id].append(c)
+    # An ID on several rows is never resolved to any one of them (neither first nor last).
+    duplicate_ids = {i: rows for i, rows in rows_by_id.items() if len(rows) > 1}
+    by_id = {i: rows[0] for i, rows in rows_by_id.items() if len(rows) == 1}
+    for i, rows in duplicate_ids.items():
+        warnings.append(f"Contact ID {i} appears on {len(rows)} rows "
+                        f"(rows {', '.join(str(c.row_number) for c in rows)}). Changes for this ID are held "
+                        "for review.")
+    for c in contacts:
         for lk in {p.last_key for p in c.persons if p.last_key}:
             by_last[lk].append(c)
         for ck in {N.name_key(c.company)} - {""}:
@@ -190,7 +205,7 @@ def build_tp_export(table: Table, roles: dict, filename: str, sha256: str) -> TP
     return TPExport(filename=filename, sha256=sha256, roles=roles, contacts=contacts, by_id=by_id,
                     by_last=dict(by_last), by_company=dict(by_company), by_email=dict(by_email),
                     by_phone=dict(by_phone), by_address=dict(by_address), field_status=field_status,
-                    warnings=warnings, category_separator=cat_sep)
+                    warnings=warnings, category_separator=cat_sep, duplicate_ids=duplicate_ids)
 
 
 # ----------------------------------------------------------------- households

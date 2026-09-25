@@ -169,7 +169,6 @@ def run_verification(pre: InputFile, completed: InputFile, post: InputFile, wl_r
     mapping = store.mapping_index(store.load_mapping())
     rows = verify(wl_table, wl_roles, pre_x, post_x, mapping, store.load_confirmed())
     counts = verification_counts(rows)
-    checks = O.verify_checks(rows)
     run_id, run_dir = ("preview", None)
     if save:
         run_id, run_dir = store.new_run("verify")
@@ -178,6 +177,7 @@ def run_verification(pre: InputFile, completed: InputFile, post: InputFile, wl_r
     reviews = [{"Review_Category": cat, "Change_ID": v.change_id, "Contact": v.contact_label, "TP_IDs": v.tp_id,
                 "Field": v.field, "Proposed_Addition": v.proposed, "Assessment": v.result, "Reason": reason}
                for v in rows for cat, reason in v.reviews]
+    checks = O.verify_checks(rows, reviews)
     outputs = {"Verification_Results.csv": O.csv_bytes(O.VERIFY_COLUMNS, vrows),
                "Review_Required.csv": O.csv_bytes(O.REVIEW_COLUMNS, reviews)}
     inputs = [_input_meta("Pre-edit TP export", pre, pre_t), _input_meta("Completed Cowork worklist", completed, wl_table),

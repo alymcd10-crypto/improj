@@ -252,11 +252,15 @@ def page_verify() -> None:
     st.subheader("Step 4 · Results")
     st.caption(f"Run {out.run_id}")
     show_warnings(out)
-    totals(out.counts, ["Completion claims checked", "Verified completed", "Expected change not found",
-                        "Not verifiable", "Match problems", "Retention problems"])
+    totals(out.counts, ["Completion claims checked", "Verified completed", "Added, earlier info missing",
+                        "Added, retention not verifiable", "Expected change not found", "Not verifiable",
+                        "Match problems"])
+    st.caption("Verified completed means the requested addition is present AND everything that was already in "
+               "that field is still there.")
     downloads(out, ["Verification_Results.csv", "Review_Required.csv", "Run_Summary.md"])
     cols = ["Change_ID", "Contact", "Field", "Proposed_Addition", "Cowork_Reported_Status", "Independent_Result",
-            "Reason", "Earlier_Values_Retained", "Other_Differences_On_Contact"]
+            "Requested_Addition_Present", "Earlier_Info_Retained", "Reason", "Retention_Detail",
+            "Other_Differences_On_Contact"]
     results_table([{k: d[k] for k in cols} for d in out.detail], "b_tbl", "Independent_Result")
 
 

@@ -28,6 +28,12 @@ ASSESSMENTS = {
                          "contact.",
     "EXPECTED_CHANGE_NOT_FOUND": "Cowork reported the change, but the post-edit export does not show it on "
                                  "the matched contact.",
+    "ADDED_BUT_EARLIER_INFO_MISSING": "The requested addition is present, but something that was already in "
+                                      "that field before the edit is gone. Needs review; the exports cannot show "
+                                      "who removed it.",
+    "ADDED_RETENTION_NOT_VERIFIABLE": "The requested addition is present, but the exports cannot show whether "
+                                      "earlier information was kept (for example the pre-edit export lacks the "
+                                      "field). Not counted as fully verified.",
 }
 
 ELIGIBLE_STATUSES = {"", "PENDING_CURRENT_CHECK", "IN_PROGRESS"}
@@ -177,7 +183,8 @@ def reconcile(worklist: Table, wl_roles: dict, export: TPExport, mapping: dict,
         if m.status != MATCHED:
             r.assessment = "MATCH_REVIEW" if m.status == MATCH_REVIEW else "NOT_FOUND"
             r.reason = m.reason
-            r.reviews.append((C.R_MATCH if m.status == MATCH_REVIEW else C.R_NOT_FOUND,
+            category = C.R_DUP_ID if m.duplicate_id else (C.R_MATCH if m.status == MATCH_REVIEW else C.R_NOT_FOUND)
+            r.reviews.append((category,
                               m.reason + (" Candidates: " + "; ".join(m.candidates) if m.candidates else "")))
         else:
             res = C.run_check(action, proposed, m.contact, export, mapping, types)
@@ -222,6 +229,10 @@ def reconcile(worklist: Table, wl_roles: dict, export: TPExport, mapping: dict,
 
     # ---- review items not tied to one worklist row
     extra = []
+    for tp_id, rows in export.duplicate_ids.items():
+        extra.append({"Review_Category": C.R_DUP_ID, "Contact": " / ".join(c.label for c in rows[:5]),
+                      "TP_IDs": tp_id, "Reason": export.duplicate_id_reason(tp_id),
+                      "Source_Reference": f"{export.filename} rows {', '.join(str(c.row_number) for c in rows)}"})
     for d in suspected_duplicates(export):
         a, b = d["a"], d["b"]
         extra.append({"Review_Category": C.R_DUPLICATE, "Contact": a.label,

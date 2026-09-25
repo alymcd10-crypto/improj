@@ -165,11 +165,35 @@ def split_categories(value: str, separators: str = ";|\n") -> list[str]:
 
 # ---------------------------------------------------------------- notes
 def note_tokens(text: str) -> list[str]:
-    return re.findall(r"[0-9a-z]+", fold(text))
+    """Words of a note for comparison: case, accents, spacing, line breaks and punctuation ignored.
+
+    '&' counts as 'and'. Word order is kept so relationships ("Agent: John Pinto") survive.
+    """
+    return re.findall(r"[0-9a-z]+", fold(text).replace("&", " and "))
 
 
-def note_compact(text: str) -> str:
-    return "".join(note_tokens(text))
+def contains_sequence(needle: list[str], hay: list[str]) -> bool:
+    """True when `needle` appears in `hay` as consecutive whole words, in the same order."""
+    n = len(needle)
+    if not n:
+        return False
+    first = needle[0]
+    return any(hay[i] == first and hay[i:i + n] == needle for i in range(len(hay) - n + 1))
+
+
+_SEGMENT_BREAK = re.compile(r"(?:\r?\n)+|(?<=[.!?;])\s+")
+
+
+def note_segments(text: str) -> list[tuple[str, list[str]]]:
+    """Split a note into sentences / lines: (original text, word list)."""
+    out = []
+    for seg in _SEGMENT_BREAK.split(text or ""):
+        words = note_tokens(seg)
+        if words:
+            out.append((seg.strip(), words))
+    return out
+
+
 
 
 # ---------------------------------------------------------------- dates

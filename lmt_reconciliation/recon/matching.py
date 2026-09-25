@@ -33,6 +33,7 @@ class MatchResult:
     evidence: str = ""
     reason: str = ""
     candidates: list[str] = field(default_factory=list)  # "TP_ID (name)" strings for review
+    duplicate_id: str = ""                               # set when a TP ID used here is on several rows
 
     @property
     def tp_id(self) -> str:
@@ -104,6 +105,27 @@ def _cand(c: TPContact) -> str:
 
 def resolve(w: WorklistIdentity, export: TPExport, known_id: str = "", known_id_source: str = "",
             ignore_phones: set[str] | None = None) -> MatchResult:
+    """Resolve, then hold any result that relies on a Top Producer ID carried by several export rows."""
+    tp_id = known_id or w.tp_id
+    if tp_id and tp_id in export.duplicate_ids:
+        return MatchResult(MATCH_REVIEW, reason=export.duplicate_id_reason(tp_id),
+                           candidates=[_cand(c) for c in export.duplicate_ids[tp_id]], duplicate_id=tp_id)
+    m = _resolve(w, export, known_id, known_id_source, ignore_phones)
+    if m.contact is not None and m.contact.tp_id in export.duplicate_ids:
+        # Found through name + email/phone/address, but that profile's ID is on several rows.
+        dup = m.contact.tp_id
+        return MatchResult(MATCH_REVIEW, reason=export.duplicate_id_reason(dup) + (
+                               f" (Found via {m.evidence}.)" if m.evidence else ""),
+                           candidates=[_cand(c) for c in export.duplicate_ids[dup]], duplicate_id=dup)
+    dup = next((c.split(" ")[0] for c in m.candidates if c.split(" ")[0] in export.duplicate_ids), "")
+    if dup:  # already in review; keep its candidates and add the duplicate-ID warning
+        m.reason += " " + export.duplicate_id_reason(dup)
+        m.duplicate_id = dup
+    return m
+
+
+def _resolve(w: WorklistIdentity, export: TPExport, known_id: str = "", known_id_source: str = "",
+             ignore_phones: set[str] | None = None) -> MatchResult:
     ignore_phones = ignore_phones or set()
     tp_id = known_id or w.tp_id
     id_source = known_id_source or ("TP_ID column in worklist" if w.tp_id else "")
