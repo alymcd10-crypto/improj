@@ -1,0 +1,16 @@
+# Local-only settings: no usage statistics, only reachable from this computer.
+[browser]
+gatherUsageStats = false
+serverAddress = "localhost"
+
+[server]
+address = "localhost"
+headless = true
+maxUploadSize = 1000
+enableXsrfProtection = true
+
+[client]
+toolbarMode = "minimal"
+
+[theme]
+base = "light"

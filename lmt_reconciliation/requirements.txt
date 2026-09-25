@@ -1,0 +1,5 @@
+streamlit>=1.36,<2
+pandas>=2.0
+openpyxl>=3.1
+# tests only
+pytest>=7
